@@ -51,10 +51,16 @@ class WConnection:
         self.wlan.deinit()
 
     def access_point(self):
-        self.wlan = network.WLAN(network.AP_IF)
-        ap = self.wlan
-        ap.config(essid="Pi_picoW", password="RPIPicoW")
-        ap.active(True)
+        try:
+            ssid, password = self.read_wifi_networks()[-1]
+            print(f"AP Mode Settings: \nAP SSID: {ssid}\nPassword: {password}")
+            self.wlan = network.WLAN(network.AP_IF)
+            ap = self.wlan
+            ap.config(essid=ssid, password=password)
+            ap.active(True)
+            return True
+        except Exception:
+            return False
 
     async def connection_control(self):
         while True:
