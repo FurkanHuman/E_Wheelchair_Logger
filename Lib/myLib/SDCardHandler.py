@@ -2,11 +2,12 @@ import os
 import gc
 import machine
 import time
+from backup_memory import backup_memory
 from ..Driver.sdcard import SDCard
 
 
 class SDCardHandler():
-    def __init__(self, spi_id, sck, mosi, miso, cs, baudrate):
+    def __init__(self, spi_id, sck, mosi, miso, cs, baudrate, date_foldering: bool = True, backup_counter_file_name="file_counter"):
 
         self.WRITE_PROTECT = False
         self.FOLDER_FORMAT = "{:02d}_{:02d}_{:02d}"
@@ -23,8 +24,10 @@ class SDCardHandler():
             self.WRITE_PROTECT = True
             print(f"No SD Cart!!!\nError: {e}\n")
             return
+        self.backup_counter = backup_memory(
+            file_name=backup_counter_file_name, reset=False)
 
-        self.current_folder = self.create_new_root_folder()
+        self.current_folder = self.create_new_root_folder(date_foldering)
 
     def sd_cart_eject(self):
 
@@ -36,16 +39,17 @@ class SDCardHandler():
         print("Mounted")
         self.WRITE_PROTECT = False
 
-    def create_new_root_folder(self):
+    def create_new_root_folder(self, date_foldering: bool):
         if self.WRITE_PROTECT:
             return None
 
-        current_date = time.localtime()
+        path: str = ""
 
-        formatted_date = self.FOLDER_FORMAT.format(
-            current_date[2], current_date[1], current_date[0])
+        if date_foldering:
+            path = f"/sd/{self.date_path()}"
+        else:
+            path = f"/sd/{self.backup_counter.get_one_shot_value()}"
 
-        path = f"/sd/{formatted_date}"
         if not self.is_dir_exists(path):
             try:
                 os.mkdir(path)
@@ -54,6 +58,14 @@ class SDCardHandler():
                 # log.e_logger(e, "path is not created sde-002")
                 print(e)
         return path
+
+    def date_path(self):
+        current_date = time.localtime()
+
+        formatted_date = self.FOLDER_FORMAT.format(
+            current_date[2], current_date[1], current_date[0])
+
+        return formatted_date
 
     def ls(self, directory):
         if self.WRITE_PROTECT:

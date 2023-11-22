@@ -1,19 +1,20 @@
-import machine
-import ntptime
-import uasyncio
-import gc
-import time
-import binascii
-from machine import I2C, Pin
-from Lib.myLib.OnBoardLed import OnBoardLed
-from Lib.myLib.WConnection import WConnection
-from Lib.myLib.OnBoardLed import OnBoardLed
-from Lib.myLib.WConnection import WConnection
-from Lib.myLib.SDCardHandler import SDCardHandler
-from Lib.myLib.SDLogger import SDLogger
-from Lib.myLib.SDDataLogger import SDDataLogger
-from Lib.Driver.imu import MPU6050, MPUException
 from Lib.Driver.ina226 import INA226
+from Lib.Driver.imu import MPU6050, MPUException
+from Lib.myLib.backup_memory import backup_memory
+from Lib.myLib.SDDataLogger import SDDataLogger
+from Lib.myLib.SDLogger import SDLogger
+from Lib.myLib.SDCardHandler import SDCardHandler
+from Lib.myLib.WConnection import WConnection
+from Lib.myLib.OnBoardLed import OnBoardLed
+from machine import I2C, Pin
+import binascii
+import gc
+import uasyncio
+import ntptime
+import machine
+import time
+print(time.time())
+
 
 # boot and debug start
 
@@ -32,7 +33,8 @@ i2c_1 = I2C(1, scl=scl_1, sda=sda_1, freq=400000)
 
 gps_uart = machine.UART(0, baudrate=19200)
 
-sd0 = SDCardHandler(spi_id=0, sck=6, mosi=7, miso=4, cs=5, baudrate=5000000)
+sd0 = SDCardHandler(spi_id=0, sck=6, mosi=7, miso=4, cs=5,
+                    baudrate=5000000, date_foldering=False)
 
 print('Scan i2c_1 bus...')
 devices = i2c_1.scan()
@@ -50,34 +52,18 @@ mpu6050_0X68 = MPU6050(side_str=i2c_1)
 ina226_0X40 = INA226(i2c_device=i2c_1)
 
 sd0.ls("/sd/")
-sd0.current_folder = sd0.create_new_root_folder()
-sd0.ls(sd0.current_folder)
+
+print(sd0.current_folder)
 sdlog: SDLogger = SDLogger(sd_ch=sd0)
 
-
-
-cs: bool = wifi.connect_wifi()
+cs: bool = wifi.access_point()
 
 if cs:
-    sdlog.c_log("Wifi is connected")
+    sdlog.c_log("Access point mode Enabled")
 
-    try:
-        ntptime.settime()
-        sdlog.c_log("time is updated")
-        uasyncio.run(led.short_up(500))
-
-    except OSError as e:
-        uasyncio.run(led.long_up(1000))
-        sdlog.c_log("time not updated")
-        wifi.disconnect_turn_off()
-        sdlog.c_log("Wifi turn off")
 else:
-    sdlog.c_log("wifi is not connected")
-
-gc.enable()
-wifi = None
-
-sdlog.c_log("wifi Object is deleted")
+    sdlog.c_log("Access point mode not enabled. rebooting")
+    machine.reset()
 
 sd_data_mpu6050_0x68_log: SDDataLogger = SDDataLogger(
     sd_ch=sd0, file_name="MPU6050_0x68")
@@ -144,7 +130,7 @@ async def GPS_loop_async():
         gc.collect()
 
 
-def zda_info_parser(zda_parts: list[str]): # TODO: W.I.P function part 2
+def zda_info_parser(zda_parts: list[str]):  # TODO: W.I.P function part 2
     try:
 
         hhmmss = zda_parts[1].split('.')[0]
@@ -179,7 +165,7 @@ def zda_info_parser(zda_parts: list[str]): # TODO: W.I.P function part 2
 gps_clock_try_count: int = 3
 
 
-async def update_pico_clock_with_gps_loop(): # TODO: W.I.P function
+async def update_pico_clock_with_gps_loop():  # TODO: W.I.P function
     try:
         for _ in range(gps_clock_try_count):
 
@@ -187,32 +173,33 @@ async def update_pico_clock_with_gps_loop(): # TODO: W.I.P function
 
             buff = gps_uart.read()
             if buff:
-                buff_str: str = str(buff, 'utf-8') # type: ignore
+                buff_str: str = str(buff, 'utf-8')  # type: ignore
 
-             buff_gpzda:str = [line for line in buff_str.split('\r\n') if line.startswith("$GPZDA")][0]  # type: ignore
+                buff_gpzda: str = [line for line in buff_str.split(
+                    '\r\n') if line.startswith("$GPZDA")][0]  # type: ignore
 
-            uasyncio.sleep_ms(500)
-            gps_uart.flush()
-            print(buff_gpzda)
-            # buff_gpzda: str = "$GPZDA,131143.20,24,10,2023,00,00*65"
-            zda_parse = zda_info_parser(buff_gpzda.split(','))
+                uasyncio.sleep_ms(500)
+                gps_uart.flush()
+                print(buff_gpzda)
+                # buff_gpzda: str = "$GPZDA,131143.20,24,10,2023,00,00*65"
+                zda_parse = zda_info_parser(buff_gpzda.split(','))
 
-            if zda_parse == None:
-                return
+                if zda_parse == None:
+                    return
 
-            rtc.datetime(datetimetuple=[
-                zda_parse[8],
-                zda_parse[7],
-                zda_parse[6],
-                0,
-                zda_parse[3],
-                zda_parse[2],
-                zda_parse[1],
-                0])
-            sdlog.c_log(
-                f"GPS Time updated by RTC. RTC Time info [{zda_parse}]. Count By: {gps_clock_try_count}/{_+1}")
+                rtc.datetime(datetimetuple=[
+                    zda_parse[8],
+                    zda_parse[7],
+                    zda_parse[6],
+                    0,
+                    zda_parse[3],
+                    zda_parse[2],
+                    zda_parse[1],
+                    0])
+                sdlog.c_log(
+                    f"GPS Time updated by RTC. RTC Time info [{zda_parse}]. Count By: {gps_clock_try_count}/{_+1}")
 
-            uasyncio.run(led.short_down(500))
+                uasyncio.run(led.short_down(500))
 
     except Exception as e:
         sdlog.e_log(
@@ -222,10 +209,18 @@ async def update_pico_clock_with_gps_loop(): # TODO: W.I.P function
 
 gc.enable()
 
+# def my_exception_handler(loop, context):
+
+#     sdlog.e_log()
+
+
 loop = uasyncio.new_event_loop()
 
+# loop.set_exception_handler(my_exception_handler)
+
 loop.create_task(GPS_loop_async())
-loop.create_task(update_pico_clock_with_gps_loop()) # TODO: W.I.P function part 3
+loop.create_task(update_pico_clock_with_gps_loop()
+                 )  # TODO: W.I.P function part 3
 
 loop.create_task(mpu6050_0x68_loop_async())
 loop.create_task(ina226_0x40_loop_async())
